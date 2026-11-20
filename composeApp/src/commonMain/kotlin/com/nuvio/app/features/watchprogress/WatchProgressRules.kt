@@ -119,7 +119,7 @@ internal fun List<WatchProgressEntry>.resumeEntryForSeries(metaId: String): Watc
 internal fun List<WatchProgressEntry>.continueWatchingEntries(
     limit: Int = ContinueWatchingLimit,
 ): List<WatchProgressEntry> {
-    val selectionEntries = filter { entry ->
+    val selectionEntries = filterNot { entry -> entry.isLiveChannelProgress() }.filter { entry ->
         entry.isEffectivelyCompleted || entry.shouldTreatAsInProgressForContinueWatching()
     }.newestByProgressKey().values.toList()
     val domainEntries = continueWatchingProgressEntries(
@@ -133,8 +133,13 @@ internal fun List<WatchProgressEntry>.continueWatchingEntries(
         .sortedByDescending { it.lastUpdatedEpochMs }
 }
 
-internal fun WatchProgressEntry.shouldTreatAsInProgressForContinueWatching(): Boolean {
-    val entry = normalizedCompletion()
+/** Live channels have no runtime and nothing to resume, so they never belong in Continue Watching. */
+internal fun WatchProgressEntry.isLiveChannelProgress(): Boolean =
+    videoId.startsWith("livetv:") ||
+        parentMetaId.startsWith("livetv:") ||
+        (contentType == "channel" && providerAddonId == "livetv")
+
+internal fun WatchProgressEntry.shouldTreatAsInProgressForContinueWatching(): Boolean {    val entry = normalizedCompletion()
     if (entry.isEffectivelyCompleted) return false
 
     val hasStartedPlayback = entry.lastPositionMs > 0L ||

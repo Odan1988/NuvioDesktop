@@ -1288,19 +1288,10 @@ object WatchProgressRepository {
     /** Live channels have no fixed runtime and nothing to resume; they never enter watch progress. */
     private const val LIVETV_CONTENT_TYPE = "channel"
     private const val LIVETV_PROVIDER_ID = "livetv"
-    private const val LIVETV_VIDEO_ID_PREFIX = "livetv:"
 
     fun continueWatching(): List<WatchProgressEntry> {
         ensureLoaded()
-        return currentEntries()
-            // Earlier builds stored live channels; drop any that are still on disk.
-            .filterNot {
-                it.contentType == LIVETV_CONTENT_TYPE ||
-                    it.providerAddonId == LIVETV_PROVIDER_ID ||
-                    it.videoId.startsWith(LIVETV_VIDEO_ID_PREFIX) ||
-                    it.parentMetaId.startsWith(LIVETV_VIDEO_ID_PREFIX)
-            }
-            .continueWatchingEntries()
+        return currentEntries().continueWatchingEntries()
     }
 
     fun refreshEpisodeProgress(contentId: String, forceRefresh: Boolean = false) {
