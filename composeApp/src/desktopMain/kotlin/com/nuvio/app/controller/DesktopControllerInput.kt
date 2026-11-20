@@ -42,6 +42,15 @@ internal object DesktopControllerInput {
 
     private val started = AtomicBoolean(false)
 
+    /**
+     * XInput and SDL enumerate the whole machine, not this process, so a pad would otherwise
+     * drive Nuvio while the user is playing something else on another monitor. Input is only
+     * accepted while one of this app's own windows is the active window.
+     */
+    private fun appWindowHasFocus(): Boolean = runCatching {
+        java.awt.Window.getWindows().any { window -> window.isShowing && window.isActive }
+    }.getOrDefault(false)
+
     @Volatile
     private var running = false
 
@@ -94,6 +103,11 @@ internal object DesktopControllerInput {
             buttons: Set<XboxButton>,
             now: Long,
         ) {
+            if (!DesktopControllerInput.appWindowHasFocus()) {
+                // Drop held state too, so a button pressed in another app cannot fire on refocus.
+                reset()
+                return
+            }
             for (direction in ControllerDirection.entries) {
                 val pressed = direction in directions
                 val previous = heldDirections[direction]
@@ -141,6 +155,13 @@ internal object DesktopControllerInput {
         private var lastSentAt = 0L
 
         fun update(analogDx: Float, analogDy: Float, now: Long) {
+            if (!DesktopControllerInput.appWindowHasFocus()) {
+                if (lastSentAt != 0L) {
+                    ControllerManager.dispatchEvent(ControllerEvent.AnalogScroll(0f, 0f))
+                    lastSentAt = 0L
+                }
+                return
+            }
             if (abs(analogDx) > 0.01f || abs(analogDy) > 0.01f) {
                 ControllerManager.dispatchEvent(ControllerEvent.AnalogScroll(analogDx, analogDy))
                 lastSentAt = now
