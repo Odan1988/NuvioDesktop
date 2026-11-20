@@ -114,6 +114,15 @@ private fun FocusManager.moveSpatialFocus(direction: ControllerDirection): Boole
     return false
 }
 
+/**
+ * Nuvio on desktop is driven with the mouse and keyboard only.
+ *
+ * XInput and SDL enumerate the whole machine rather than this process, so the poller also
+ * reacted while a game on another monitor owned the pad - it navigated and scrolled the guide
+ * mid-match. Leave this off unless controller navigation is wanted back on purpose.
+ */
+private const val CONTROLLER_NAVIGATION_ENABLED = false
+
 private val blankCursor: java.awt.Cursor by lazy {
     val transparent = java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB)
     java.awt.Toolkit.getDefaultToolkit().createCustomCursor(transparent, java.awt.Point(0, 0), "nuvio-blank")
@@ -136,14 +145,19 @@ actual fun PlatformKeyboardNavigationHost() {
 
     DesktopKeyboardShortcutHost()
 
-    // Controller polling + navigation feedback sounds. DesktopControllerInput normalises XInput
-    // (Windows) and SDL2 (Linux/macOS) into the same spatial-engine events.
+    // Controller polling is deliberately off on desktop. XInput/SDL enumerate the whole machine,
+    // so a pad also drove Nuvio while a game on another monitor owned it. Nuvio is mouse and
+    // keyboard only; flip this to true to bring the spatial engine back.
     DisposableEffect(Unit) {
-        DesktopControllerSound.install()
-        DesktopControllerInput.start()
+        if (CONTROLLER_NAVIGATION_ENABLED) {
+            DesktopControllerSound.install()
+            DesktopControllerInput.start()
+        }
         onDispose {
-            DesktopControllerInput.stop()
-            DesktopControllerSound.uninstall()
+            if (CONTROLLER_NAVIGATION_ENABLED) {
+                DesktopControllerInput.stop()
+                DesktopControllerSound.uninstall()
+            }
         }
     }
 
