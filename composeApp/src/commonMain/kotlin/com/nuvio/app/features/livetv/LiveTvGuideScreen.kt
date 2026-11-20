@@ -5,6 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -52,10 +56,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -419,6 +434,7 @@ internal fun LiveTvGuideScreen(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun CategoryBar(
     categories: List<LiveCategory>,
@@ -426,11 +442,58 @@ private fun CategoryBar(
     totalChannels: Int,
     onSelect: (String) -> Unit,
 ) {
-    val selectedIndex = if (selected == ALL_CATEGORIES) 0 else categories.indexOfFirst { it.id == selected } + 1
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex.coerceAtLeast(0))
+    val ids = remember(categories) { listOf(ALL_CATEGORIES) + categories.map { it.id } }
+    val selectedIndex = ids.indexOf(selected).coerceAtLeast(0)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex)
+    val scope = rememberCoroutineScope()
+
+    // A group picked elsewhere (keyboard, restored setting, a re-fetch) still has to
+    // end up on screen — the rail is wider than a desktop window — but a chip that is
+    // already visible must not jump under the pointer.
+    LaunchedEffect(selectedIndex) {
+        val visible = listState.layoutInfo.visibleItemsInfo
+        if (visible.isNotEmpty() && visible.none { it.index == selectedIndex }) {
+            runCatching { listState.animateScrollToItem(selectedIndex) }
+        }
+    }
+
+    fun step(delta: Int) {
+        val from = ids.indexOf(selected)
+        if (from < 0) return
+        val next = (from + delta).coerceIn(0, ids.lastIndex)
+        if (next != from) onSelect(ids[next])
+    }
+
     LazyRow(
         state = listState,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft -> { step(-1); true }
+                    Key.DirectionRight -> { step(1); true }
+                    Key.MoveHome -> { onSelect(ids.first()); true }
+                    Key.MoveEnd -> { onSelect(ids.last()); true }
+                    else -> false
+                }
+            }
+            // A mouse wheel is vertical, the rail is horizontal: translate it rather
+            // than letting the rows underneath scroll instead.
+            .onPointerEvent(PointerEventType.Scroll) { event ->
+                val delta = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                if (delta != 0f) {
+                    event.changes.forEach { it.consume() }
+                    scope.launch { listState.scrollBy(delta * 120f) }
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    change.consume()
+                    scope.launch { listState.scrollBy(-dragAmount) }
+                }
+            },
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -451,6 +514,7 @@ private fun CategoryBar(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun GuideGrid(
     data: GuideData,
@@ -466,13 +530,71 @@ private fun GuideGrid(
 ) {
     val tokens = MaterialTheme.nuvio
     val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
+    var focusedRow by remember(rows) { mutableIntStateOf(0) }
     val totalMinutes = ((data.windowEndMillis - data.windowStartMillis) / MINUTE_MILLIS)
         .toInt()
         .coerceAtLeast(60)
-    Column(Modifier.fillMaxSize()) {
+
+    fun shiftTime(minutes: Int) {
+        val target = (scroll.value + (MINUTE_WIDTH.value * minutes).toInt())
+            .coerceIn(0, scroll.maxValue)
+        scope.launch { scroll.animateScrollTo(target) }
+    }
+
+    fun moveSelection(delta: Int) {
+        if (rows.isEmpty()) return
+        focusedRow = (focusedRow + delta).coerceIn(0, rows.lastIndex)
+        scope.launch { listState.animateScrollToItem(focusedRow) }
+    }
+
+    // Opening the tab should leave the arrows working without a click first.
+    LaunchedEffect(rows) {
+        focusedRow = focusedRow.coerceIn(0, maxOf(0, rows.lastIndex))
+        if (rows.isNotEmpty()) runCatching { focusRequester.requestFocus() }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            // Same muscle memory as TiviMate's remote: up/down between channels,
+            // left/right along the timeline, Enter to watch.
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionUp -> { moveSelection(-1); true }
+                    Key.DirectionDown -> { moveSelection(1); true }
+                    Key.DirectionLeft -> { shiftTime(-30); true }
+                    Key.DirectionRight -> { shiftTime(30); true }
+                    Key.PageUp -> { shiftTime(-60); true }
+                    Key.PageDown -> { shiftTime(60); true }
+                    Key.Enter, Key.NumPadEnter, Key.Spacebar -> {
+                        rows.getOrNull(focusedRow)?.let { onPlayChannel(it.channel) }
+                        true
+                    }
+                    else -> false
+                }
+            },
+    ) {
         Row(Modifier.fillMaxWidth().height(26.dp)) {
             Spacer(Modifier.width(CHANNEL_COLUMN_WIDTH))
-            Box(Modifier.weight(1f).clipToBounds()) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clipToBounds()
+                    // The ruler is the time axis, so a wheel over it scrolls the timeline.
+                    .onPointerEvent(PointerEventType.Scroll) { event ->
+                        val delta = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                        if (delta != 0f) {
+                            event.changes.forEach { it.consume() }
+                            shiftTime(if (delta > 0f) 30 else -30)
+                        }
+                    },
+            ) {
                 Row(Modifier.horizontalScroll(scroll).height(26.dp)) {
                     repeat(totalMinutes / 60) { hour ->
                         val labelAt = data.windowStartMillis + hour * 60L * MINUTE_MILLIS
@@ -505,17 +627,20 @@ private fun GuideGrid(
         }
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             // Keeps the last rows clear of Nuvio's floating bottom bar and the system nav bar.
             contentPadding = PaddingValues(bottom = nuvioSafeBottomPadding(16.dp)),
         ) {
-            items(rows, key = { it.channel.id }) { row ->
+            itemsIndexed(rows, key = { _, row -> row.channel.id }) { index, row ->
                 ChannelRow(
                     row = row,
                     data = data,
                     scroll = scroll,
                     isFavorite = row.channel.id in favorites,
                     isRecording = dvr.jobForChannel(row.channel.name) != null,
+                    isSelected = index == focusedRow,
+                    onFocused = { focusedRow = index },
                     onPlayChannel = onPlayChannel,
                     onToggleFavorite = onToggleFavorite,
                     onToggleRecord = onToggleRecord,
@@ -534,6 +659,8 @@ private fun ChannelRow(
     scroll: androidx.compose.foundation.ScrollState,
     isFavorite: Boolean,
     isRecording: Boolean,
+    isSelected: Boolean,
+    onFocused: () -> Unit,
     onPlayChannel: (LiveChannel) -> Unit,
     onToggleFavorite: (LiveChannel) -> Unit,
     onToggleRecord: (LiveChannel) -> Unit,
@@ -546,6 +673,8 @@ private fun ChannelRow(
             current = row.currentProgram,
             isFavorite = isFavorite,
             isRecording = isRecording,
+            isSelected = isSelected,
+            onFocused = onFocused,
             onToggleFavorite = { onToggleFavorite(row.channel) },
             onToggleRecord = { onToggleRecord(row.channel) },
             onClick = { onPlayChannel(row.channel) },
@@ -599,6 +728,8 @@ private fun ChannelCell(
     current: GuideProgram?,
     isFavorite: Boolean,
     isRecording: Boolean,
+    isSelected: Boolean,
+    onFocused: () -> Unit,
     onToggleFavorite: () -> Unit,
     onToggleRecord: () -> Unit,
     onClick: () -> Unit,
@@ -610,13 +741,19 @@ private fun ChannelCell(
         modifier = Modifier
             .width(CHANNEL_COLUMN_WIDTH)
             .fillMaxHeight()
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .then(
-                if (focused) {
-                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                } else {
-                    Modifier
+                when {
+                    focused || isSelected -> Modifier.border(
+                        2.dp,
+                        MaterialTheme.colorScheme.primary,
+                        RoundedCornerShape(6.dp),
+                    )
+                    else -> Modifier
                 },
             )
             .padding(start = 8.dp, end = 2.dp),
