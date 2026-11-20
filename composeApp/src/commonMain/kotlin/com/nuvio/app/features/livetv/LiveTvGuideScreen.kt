@@ -67,6 +67,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
@@ -146,6 +147,10 @@ internal fun LiveTvGuideScreen(
     var dvrSnapshot by remember { mutableStateOf(DvrSnapshot()) }
     var actionTarget by remember { mutableStateOf<GuideTarget?>(null) }
     val scope = rememberCoroutineScope()
+    // Granted once, when the grid first has rows: arrows then work without a click,
+    // and the search field keeps the keyboard while the user types.
+    val gridFocusRequester = remember { FocusRequester() }
+    var gridTookFocus by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         dvrSnapshot = runCatching { DvrClient.list() }.getOrDefault(DvrSnapshot())
@@ -317,7 +322,18 @@ internal fun LiveTvGuideScreen(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                // Enter hands the keyboard to the results instead of trapping it here.
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown &&
+                        (event.key == Key.Enter || event.key == Key.NumPadEnter)
+                    ) {
+                        runCatching { gridFocusRequester.requestFocus() }
+                        true
+                    } else {
+                        false
+                    }
+                },
         )
 
         when (val current = state) {
@@ -410,12 +426,19 @@ internal fun LiveTvGuideScreen(
                     else -> emptyMessage
                 }
                 // Fresh list state per filter, so changing it starts at the top.
+                LaunchedEffect(rows.isNotEmpty()) {
+                    if (!gridTookFocus && rows.isNotEmpty()) {
+                        gridTookFocus = true
+                        runCatching { gridFocusRequester.requestFocus() }
+                    }
+                }
                 key(selected, query, favoritesOnly) {
                     GuideGrid(
                         data = data,
                         rows = rows,
                         favorites = favorites,
                         dvr = dvrSnapshot,
+                        focusRequester = gridFocusRequester,
                         onPlayChannel = onPreviewChannel ?: onPlayChannel,
                         onExpandChannel = onPlayChannel,
                         onToggleFavorite = { channel -> favorites = LiveTvFavorites.toggle(channel.id) },
@@ -529,17 +552,16 @@ private fun GuideGrid(
     onLongPressChannel: (LiveChannel) -> Unit,
     onLongPressProgram: (LiveChannel, GuideProgram) -> Unit,
     emptyMessage: String,
+    focusRequester: FocusRequester,
 ) {
     val tokens = MaterialTheme.nuvio
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val focusRequester = remember { FocusRequester() }
     var focusedRow by remember(rows) { mutableIntStateOf(0) }
     val totalMinutes = ((data.windowEndMillis - data.windowStartMillis) / MINUTE_MILLIS)
         .toInt()
         .coerceAtLeast(60)
-
     fun shiftTime(minutes: Int) {
         val target = (scroll.value + (MINUTE_WIDTH.value * minutes).toInt())
             .coerceIn(0, scroll.maxValue)
@@ -552,10 +574,10 @@ private fun GuideGrid(
         scope.launch { listState.animateScrollToItem(focusedRow) }
     }
 
-    // Opening the tab should leave the arrows working without a click first.
+    // Only clamp the selection here: focus is granted once by the caller so this
+    // composable cannot yank the keyboard out of the search field on every keystroke.
     LaunchedEffect(rows) {
         focusedRow = focusedRow.coerceIn(0, maxOf(0, rows.lastIndex))
-        if (rows.isNotEmpty()) runCatching { focusRequester.requestFocus() }
     }
 
     Column(
