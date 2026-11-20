@@ -417,6 +417,7 @@ internal fun LiveTvGuideScreen(
                         favorites = favorites,
                         dvr = dvrSnapshot,
                         onPlayChannel = onPreviewChannel ?: onPlayChannel,
+                        onExpandChannel = onPlayChannel,
                         onToggleFavorite = { channel -> favorites = LiveTvFavorites.toggle(channel.id) },
                         onToggleRecord = toggleRecord,
                         onLongPressChannel = { channel ->
@@ -522,6 +523,7 @@ private fun GuideGrid(
     favorites: Set<String>,
     dvr: DvrSnapshot,
     onPlayChannel: (LiveChannel) -> Unit,
+    onExpandChannel: (LiveChannel) -> Unit,
     onToggleFavorite: (LiveChannel) -> Unit,
     onToggleRecord: (LiveChannel) -> Unit,
     onLongPressChannel: (LiveChannel) -> Unit,
@@ -642,6 +644,7 @@ private fun GuideGrid(
                     isSelected = index == focusedRow,
                     onFocused = { focusedRow = index },
                     onPlayChannel = onPlayChannel,
+                    onExpandChannel = onExpandChannel,
                     onToggleFavorite = onToggleFavorite,
                     onToggleRecord = onToggleRecord,
                     onLongPressChannel = onLongPressChannel,
@@ -662,6 +665,7 @@ private fun ChannelRow(
     isSelected: Boolean,
     onFocused: () -> Unit,
     onPlayChannel: (LiveChannel) -> Unit,
+    onExpandChannel: (LiveChannel) -> Unit,
     onToggleFavorite: (LiveChannel) -> Unit,
     onToggleRecord: (LiveChannel) -> Unit,
     onLongPressChannel: (LiveChannel) -> Unit,
@@ -678,6 +682,7 @@ private fun ChannelRow(
             onToggleFavorite = { onToggleFavorite(row.channel) },
             onToggleRecord = { onToggleRecord(row.channel) },
             onClick = { onPlayChannel(row.channel) },
+            onDoubleClick = { onExpandChannel(row.channel) },
             onLongClick = { onLongPressChannel(row.channel) },
         )
         Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
@@ -700,6 +705,7 @@ private fun ChannelRow(
                         program = program,
                         width = MINUTE_WIDTH * minutes,
                         onClick = { onPlayChannel(row.channel) },
+                        onDoubleClick = { onExpandChannel(row.channel) },
                         onLongClick = { onLongPressProgram(row.channel, program) },
                     )
                     cursor = start + minutes * MINUTE_MILLIS
@@ -722,6 +728,7 @@ private fun ChannelRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelCell(
     channel: LiveChannel,
@@ -733,6 +740,7 @@ private fun ChannelCell(
     onToggleFavorite: () -> Unit,
     onToggleRecord: () -> Unit,
     onClick: () -> Unit,
+    onDoubleClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -745,7 +753,11 @@ private fun ChannelCell(
                 focused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                onClick = onClick,
+                onDoubleClick = onDoubleClick,
+                onLongClick = onLongClick,
+            )
             .then(
                 when {
                     focused || isSelected -> Modifier.border(
@@ -836,11 +848,13 @@ private fun NoListingsBlock(width: Dp, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProgramBlock(
     program: GuideProgram,
     width: Dp,
     onClick: () -> Unit,
+    onDoubleClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -863,7 +877,11 @@ private fun ProgramBlock(
             .clip(RoundedCornerShape(6.dp))
             .background(background)
             .onFocusChanged { focused = it.isFocused }
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                onClick = onClick,
+                onDoubleClick = onDoubleClick,
+                onLongClick = onLongClick,
+            )
             .then(
                 if (focused) {
                     Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
