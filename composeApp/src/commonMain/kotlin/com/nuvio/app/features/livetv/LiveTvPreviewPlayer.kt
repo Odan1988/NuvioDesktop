@@ -41,6 +41,7 @@ internal fun LiveTvPreviewPlayer(
     account: XtreamAccount,
     channel: LiveChannel,
     modifier: Modifier = Modifier,
+    isExpanded: Boolean = false,
     onExpand: () -> Unit,
 ) {
     var isLoading by remember(channel.id) { mutableStateOf(true) }
@@ -91,7 +92,7 @@ internal fun LiveTvPreviewPlayer(
             )
             Spacer(Modifier.width(12.dp))
             TextButton(onClick = onExpand) {
-                Text("Full screen")
+                Text(if (isExpanded) "Exit full screen" else "Full screen")
             }
         }
     }

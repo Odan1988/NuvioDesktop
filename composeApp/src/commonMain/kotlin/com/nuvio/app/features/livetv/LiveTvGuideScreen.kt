@@ -63,6 +63,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -133,6 +134,10 @@ internal fun LiveTvGuideScreen(
     onPreviewChannel: ((LiveChannel) -> Unit)? = null,
     /** Player preview pinned above the grid (TiviMate-style); null keeps the grid full height. */
     previewContent: (@Composable (Modifier) -> Unit)? = null,
+    /** True while the preview owns the whole window; the player itself is never re-created. */
+    previewExpanded: Boolean = false,
+    /** Double-click / "expanded" action for a channel; falls back to [onPlayChannel]. */
+    onExpandChannel: ((LiveChannel) -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     // Steps of one window (6 h) either side of now — the chips are labelled −6h / +6h.
@@ -271,15 +276,10 @@ internal fun LiveTvGuideScreen(
             },
         )
         if (previewContent != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(previewHeight)
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp)),
-            ) {
-                previewContent(Modifier.fillMaxSize())
-            }
+            // The preview lives outside the Column so expanding it only changes its
+            // bounds — moving it elsewhere in the tree would build a second player and
+            // restart the stream.
+            Spacer(Modifier.height(previewHeight))
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -440,7 +440,7 @@ internal fun LiveTvGuideScreen(
                         dvr = dvrSnapshot,
                         focusRequester = gridFocusRequester,
                         onPlayChannel = onPreviewChannel ?: onPlayChannel,
-                        onExpandChannel = onPlayChannel,
+                        onExpandChannel = onExpandChannel ?: onPlayChannel,
                         onToggleFavorite = { channel -> favorites = LiveTvFavorites.toggle(channel.id) },
                         onToggleRecord = toggleRecord,
                         onLongPressChannel = { channel ->
@@ -454,7 +454,22 @@ internal fun LiveTvGuideScreen(
                 }
             }
         }
-    }
+        }
+        if (previewContent != null) {
+            Box(
+                modifier = if (previewExpanded) {
+                    Modifier.fillMaxSize().background(Color.Black)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .height(previewHeight)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                },
+            ) {
+                previewContent(Modifier.fillMaxSize())
+            }
+        }
     }
 }
 

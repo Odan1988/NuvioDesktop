@@ -1,11 +1,14 @@
 package com.nuvio.app.features.livetv
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.nuvio.app.core.ui.isFullscreenActionActive
+import com.nuvio.app.core.ui.toggleFullscreenAction
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.profiles.ProfileRepository
 
@@ -77,6 +80,25 @@ internal fun LiveTvHost(
     }
 
     val showing = previewChannel
+    // Expanding the preview keeps the same player on screen: only its bounds change,
+    // so the stream is never restarted. The window goes fullscreen with it.
+    val isFullscreen = isFullscreenActionActive()
+    var previewExpanded by remember(sessionKey) { mutableStateOf(false) }
+    // Leaving the tab must not strand the window in fullscreen.
+    DisposableEffect(sessionKey) {
+        onDispose {
+            if (previewExpanded && isFullscreen) toggleFullscreenAction()
+        }
+    }
+    val setPreviewExpanded: (Boolean) -> Unit = { expand ->
+        previewExpanded = expand
+        if (isFullscreen != expand) toggleFullscreenAction()
+    }
+    val expandChannel: (LiveChannel) -> Unit = { channel ->
+        sessionKey?.let { LiveTvSession.tune(it, channel) }
+        previewChannel = channel
+        setPreviewExpanded(true)
+    }
     LiveTvGuideScreen(
         connectionId = XTREAM_CONNECTION_ID,
         modifier = modifier,
@@ -86,6 +108,8 @@ internal fun LiveTvHost(
         onCategorySelected = { XtreamSettings.saveCategory(it) },
         loadGuide = { start, end -> XtreamLiveTv.guideFlow(current, start, end) },
         emptyMessage = "The provider returned no channels for this line.",
+        previewExpanded = previewExpanded,
+        onExpandChannel = expandChannel,
         onPlayRecording = { recording ->
             if (onPlay != null) {
                 onPlay(
@@ -120,7 +144,8 @@ internal fun LiveTvHost(
                     account = current,
                     channel = showing,
                     modifier = previewModifier,
-                    onExpand = { playFullscreen(showing) },
+                    isExpanded = previewExpanded,
+                    onExpand = { setPreviewExpanded(!previewExpanded) },
                 )
             }
         },
