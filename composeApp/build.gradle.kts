@@ -184,6 +184,22 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
             )
         }
 
+        outDir.resolve("com/nuvio/app/features/livetv").apply {
+            mkdirs()
+            resolve("LiveTvConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.livetv
+                |
+                |/** Provider defaults from the gitignored local.properties; empty when not supplied. */
+                |object LiveTvConfig {
+                |    const val XTREAM_HOST = "${props.getProperty("LIVETV_XTREAM_HOST", "")}"
+                |    const val XTREAM_USER = "${props.getProperty("LIVETV_XTREAM_USER", "")}"
+                |    const val XTREAM_PASS = "${props.getProperty("LIVETV_XTREAM_PASS", "")}"
+                |}
+                """.trimMargin()
+            )
+        }
+
         outDir.resolve("com/nuvio/app/features/details").apply {
             mkdirs()
             resolve("ImdbEpisodeRatingsConfig.kt").writeText(

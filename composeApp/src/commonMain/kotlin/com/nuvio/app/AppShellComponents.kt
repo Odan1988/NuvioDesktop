@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -84,6 +85,7 @@ import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryScreen
 import com.nuvio.app.features.library.LibrarySection
 import com.nuvio.app.features.library.LibrarySortOption
+import com.nuvio.app.features.livetv.LiveTvHost
 import com.nuvio.app.features.player.PlayerBackReleaseGuard
 import com.nuvio.app.features.player.PlayerBackRequest
 import com.nuvio.app.features.profiles.ActiveProfileMiniAvatar
@@ -173,6 +175,7 @@ internal data class AppTabActions(
     val onCatalogClick: ((HomeCatalogSection) -> Unit)? = null,
     val onPosterClick: ((MetaPreview) -> Unit)? = null,
     val onPosterLongClick: ((MetaPreview) -> Unit)? = null,
+    val onLiveChannelPlay: ((com.nuvio.app.features.player.PlayerLaunch) -> Unit)? = null,
     val onLibraryPosterClick: ((LibraryItem) -> Unit)? = null,
     val onLibraryPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)? = null,
     val onLibrarySectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)? = null,
@@ -291,6 +294,13 @@ internal fun AppTabHost(
                     onPreviewLongClick = actions.onPosterLongClick,
                     onDownloadsClick = actions.onDownloadsClick,
                     disintegrationRequest = state.libraryDisintegrationRequest,
+                )
+            }
+
+            AppScreenTab.Live -> {
+                LiveTvHost(
+                    modifier = contentModifier,
+                    onPlay = actions.onLiveChannelPlay,
                 )
             }
 
@@ -871,6 +881,20 @@ internal fun DesktopHoverSidebar(
                     Icon(
                         painter = painterResource(Res.drawable.sidebar_library),
                         contentDescription = stringResource(Res.string.compose_nav_library),
+                        modifier = Modifier.size(DesktopSidebarIconSize),
+                        tint = color,
+                    )
+                }
+                DesktopSidebarItem(
+                    id = "sidebar_live",
+                    label = "Live",
+                    selected = selectedTab == AppScreenTab.Live,
+                    expanded = sidebarExpanded,
+                    onClick = { selectTab(AppScreenTab.Live) },
+                ) { color ->
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "Live",
                         modifier = Modifier.size(DesktopSidebarIconSize),
                         tint = color,
                     )

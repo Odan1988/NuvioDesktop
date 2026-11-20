@@ -442,6 +442,7 @@ internal fun MainAppContent(
                 searchScrollToTopRequests.tryEmit(Unit)
             }
             AppScreenTab.Library -> libraryScrollToTopRequests.tryEmit(Unit)
+            AppScreenTab.Live -> Unit
             AppScreenTab.Settings -> settingsRootActionRequests.tryEmit(Unit)
         }
     }
@@ -1489,6 +1490,10 @@ internal fun MainAppContent(
                                 onPosterClick = navController::openPreview,
                                 onPosterLongClick = { meta ->
                                     openPosterActions(PosterActionTarget(preview = meta))
+                                },
+                                onLiveChannelPlay = { liveLaunch ->
+                                    val liveLaunchId = PlayerLaunchStore.put(liveLaunch)
+                                    navController.navigate(PlayerRoute(launchId = liveLaunchId, title = liveLaunch.title))
                                 },
                                 onLibraryPosterClick = { item ->
                                     navController.navigate(
