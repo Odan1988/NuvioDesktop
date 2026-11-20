@@ -1,0 +1,101 @@
+name: Windows MSI (Live TV)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [Dev]
+    paths:
+      - 'composeApp/**'
+      - 'gradle/**'
+      - '.github/workflows/windows-msi.yml'
+
+concurrency:
+  group: windows-msi-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-msi:
+    runs-on: windows-2022
+    env:
+      WEBVIEW2_VERSION: 1.0.4078.44
+    steps:
+      - name: Check out source (with the LFS libmpv runtime)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Write local.properties from repository secrets
+        shell: pwsh
+        env:
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          LIVETV_XTREAM_HOST: ${{ secrets.LIVETV_XTREAM_HOST }}
+          LIVETV_XTREAM_USER: ${{ secrets.LIVETV_XTREAM_USER }}
+          LIVETV_XTREAM_PASS: ${{ secrets.LIVETV_XTREAM_PASS }}
+        run: |
+          $names = @(
+            'NUVIO_SUPABASE_URL',
+            'NUVIO_SUPABASE_ANON_KEY',
+            'LIVETV_XTREAM_HOST',
+            'LIVETV_XTREAM_USER',
+            'LIVETV_XTREAM_PASS'
+          )
+          $lines = foreach ($name in $names) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value)) { throw "Missing secret: $name" }
+            "$name=$value"
+          }
+          Set-Content -Path local.properties -Value $lines -Encoding utf8NoBOM
+          $lines | ForEach-Object { "wrote " + ($_ -split '=', 2)[0] }
+
+      - name: Install WebView2 SDK
+        shell: pwsh
+        run: |
+          nuget install Microsoft.Web.WebView2 `
+            -Version $env:WEBVIEW2_VERSION `
+            -OutputDirectory "$env:RUNNER_TEMP\nuget" `
+            -DirectDownload -NonInteractive -NoCache
+          $root = Join-Path $env:RUNNER_TEMP "nuget\Microsoft.Web.WebView2.$env:WEBVIEW2_VERSION"
+          if (-not (Test-Path (Join-Path $root "build\native\x64\WebView2Loader.dll.lib"))) {
+            throw "WebView2Loader.dll.lib not found under $root"
+          }
+          "WEBVIEW2_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify bundled libmpv runtime
+        shell: pwsh
+        run: |
+          $dll = "composeApp/src/desktopMain/native/windows/runtime/libmpv-2.dll"
+          if (-not (Test-Path $dll)) { throw "Missing $dll (LFS not fetched?)" }
+          $size = (Get-Item $dll).Length
+          if ($size -lt 1MB) { throw "libmpv-2.dll is an LFS pointer ($size bytes)" }
+          "libmpv ok: $([math]::Round($size/1MB,1)) MB"
+
+      - name: Build release MSI
+        shell: pwsh
+        run: |
+          .\gradlew.bat :composeApp:packageReleaseMsi `
+            "-Pnuvio.webview2.dir=$env:WEBVIEW2_ROOT" `
+            "-Pcompose.desktop.packaging.checkJdkVendor=false" `
+            --no-configuration-cache `
+            --no-daemon `
+            --stacktrace
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuvio-windows-msi
+          path: composeApp/build/compose/release-msis/*.msi
+          if-no-files-found: error
+          retention-days: 14
