@@ -1285,9 +1285,22 @@ object WatchProgressRepository {
         return currentEntries().resumeEntryForSeries(metaId)
     }
 
+    /** Live channels have no fixed runtime and nothing to resume; they never enter watch progress. */
+    private const val LIVETV_CONTENT_TYPE = "channel"
+    private const val LIVETV_PROVIDER_ID = "livetv"
+    private const val LIVETV_VIDEO_ID_PREFIX = "livetv:"
+
     fun continueWatching(): List<WatchProgressEntry> {
         ensureLoaded()
-        return currentEntries().continueWatchingEntries()
+        return currentEntries()
+            // Earlier builds stored live channels; drop any that are still on disk.
+            .filterNot {
+                it.contentType == LIVETV_CONTENT_TYPE ||
+                    it.providerAddonId == LIVETV_PROVIDER_ID ||
+                    it.videoId.startsWith(LIVETV_VIDEO_ID_PREFIX) ||
+                    it.parentMetaId.startsWith(LIVETV_VIDEO_ID_PREFIX)
+            }
+            .continueWatchingEntries()
     }
 
     fun refreshEpisodeProgress(contentId: String, forceRefresh: Boolean = false) {
@@ -1315,6 +1328,9 @@ object WatchProgressRepository {
         persist: Boolean,
         syncRemote: Boolean,
     ) {
+        if (session.contentType == LIVETV_CONTENT_TYPE || session.providerAddonId == LIVETV_PROVIDER_ID) {
+            return
+        }
         val targetProfileId = session.profileId
         val positionMs = snapshot.positionMs.coerceAtLeast(0L)
         val durationMs = snapshot.durationMs.coerceAtLeast(0L)
